@@ -1,4 +1,4 @@
-# realestate-stats-mcp
+# r-one-mcp
 
 한국부동산원 **R-ONE 부동산통계 Open API**를 위한 MCP 서버입니다. 아파트·주택 매매/전세가격지수,
 지가지수, 거래현황 등 R-ONE의 통계표 700여 개를 이름으로 찾고 실제 수치를 조회할 수 있습니다.
@@ -16,9 +16,13 @@ R-ONE API는 통계마다 엔드포인트가 따로 있지 않고 통계표코�
 
 | 도구 | 용도 |
 |---|---|
-| `search_statistics(keyword, cycle?, limit?)` | 통계표 이름 검색. 공백으로 나눈 단어가 모두 들어간 표를 찾음 (예: `"아파트 매매"`). 목록은 로컬 캐시 |
+| `search_statistics(keyword, cycle?, limit?)` | 통계표 검색. 통계표명과 조사명·하위 분류(예: 전국주택가격동향조사 > 주간아파트동향)에서 찾음. "주간/월간/분기/연간"은 주기 필터로 처리. 목록은 로컬 캐시 |
 | `get_statistics_items(statbl_id, itm_tag?, name_filter?)` | 지역(CLS_ID)·항목(ITM_ID)·그룹(GRP_ID) 코드 조회. `name_filter="종로구"`처럼 걸러낼 수 있음 |
-| `get_statistics_data(statbl_id, dtacycle_cd, ...)` | 실제 수치 조회. 값(DTA_VAL)과 단위(UI_NM)를 함께 반환 |
+| `get_statistics_data(statbl_id, dtacycle_cd, ..., save_csv?)` | 실제 수치 조회. 값(DTA_VAL)과 단위(UI_NM)를 함께 반환. `save_csv`를 주면 CSV로 저장하고 미리보기만 반환 |
+
+**CSV 저장**: `save_csv="auto"`면 `<STATBL_ID>.csv`, 파일명이나 상대경로면 `REB_OUTPUT_DIR`(기본 `~/r-one-data`)
+아래에 저장합니다. 절대경로도 됩니다. 같은 이름이 있으면 덮어쓰지 않고 `_1`, `_2`를 붙이고, 엑셀에서 바로
+열리도록 UTF-8(BOM)으로 씁니다. 결과가 커서 대화에 다 넣기 어려울 때 유용합니다.
 
 **주기코드별 시점 형식**
 
@@ -42,18 +46,18 @@ R-ONE API는 통계마다 엔드포인트가 따로 있지 않고 통계표코�
 ### A. 저장소를 받아서 쓰기 (수정해 가며 쓸 때)
 
 ```bash
-git clone https://github.com/greenoceanplanet/realestate-stats-mcp
-cd realestate-stats-mcp
+git clone https://github.com/greenoceanplanet/r-one-mcp
+cd r-one-mcp
 uv sync
 cp .env.example .env   # REB_API_KEY 입력
 ```
 
-실행 명령: `uv run --directory <저장소 경로> realestate-stats-mcp`
+실행 명령: `uv run --directory <저장소 경로> r-one-mcp`
 
 ### B. 설치 없이 바로 쓰기 (uvx)
 
 ```bash
-uvx --from git+https://github.com/greenoceanplanet/realestate-stats-mcp realestate-stats-mcp
+uvx --from git+https://github.com/greenoceanplanet/r-one-mcp r-one-mcp
 ```
 
 이 경우 `.env`가 없으므로 키는 클라이언트 설정의 `env`로 넘깁니다.
@@ -69,13 +73,13 @@ uvx --from git+https://github.com/greenoceanplanet/realestate-stats-mcp realesta
 ## 클라이언트별 설정
 
 아래 예시는 방법 A 기준입니다. 방법 B라면 `command`를 `uvx`, `args`를
-`["--from", "git+https://github.com/greenoceanplanet/realestate-stats-mcp", "realestate-stats-mcp"]`로
+`["--from", "git+https://github.com/greenoceanplanet/r-one-mcp", "r-one-mcp"]`로
 바꾸고 `env`에 키를 넣으세요. `.env`를 쓰면 `env` 항목은 빼도 됩니다.
 
 **Claude Code** (전역 등록)
 
 ```bash
-claude mcp add realestate-stats -s user -- uv run --directory /path/to/realestate-stats-mcp realestate-stats-mcp
+claude mcp add r-one-mcp -s user -- uv run --directory /path/to/r-one-mcp r-one-mcp
 ```
 
 **Claude Desktop / Cursor / Windsurf 등** (`claude_desktop_config.json`, `~/.cursor/mcp.json` 등)
@@ -83,9 +87,9 @@ claude mcp add realestate-stats -s user -- uv run --directory /path/to/realestat
 ```json
 {
   "mcpServers": {
-    "realestate-stats": {
+    "r-one-mcp": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/realestate-stats-mcp", "realestate-stats-mcp"],
+      "args": ["run", "--directory", "/path/to/r-one-mcp", "r-one-mcp"],
       "env": { "REB_API_KEY": "발급받은키" }
     }
   }
@@ -97,10 +101,10 @@ claude mcp add realestate-stats -s user -- uv run --directory /path/to/realestat
 ```json
 {
   "servers": {
-    "realestate-stats": {
+    "r-one-mcp": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/realestate-stats-mcp", "realestate-stats-mcp"]
+      "args": ["run", "--directory", "/path/to/r-one-mcp", "r-one-mcp"]
     }
   }
 }
@@ -109,9 +113,9 @@ claude mcp add realestate-stats -s user -- uv run --directory /path/to/realestat
 **Codex CLI** (`~/.codex/config.toml`)
 
 ```toml
-[mcp_servers.realestate-stats]
+[mcp_servers.r-one-mcp]
 command = "uv"
-args = ["run", "--directory", "/path/to/realestate-stats-mcp", "realestate-stats-mcp"]
+args = ["run", "--directory", "/path/to/r-one-mcp", "r-one-mcp"]
 ```
 
 **Gemini CLI** (`~/.gemini/settings.json`): Claude Desktop과 같은 `mcpServers` 형식입니다.
@@ -119,7 +123,7 @@ args = ["run", "--directory", "/path/to/realestate-stats-mcp", "realestate-stats
 ### HTTP로 띄우기 (stdio를 지원하지 않는 클라이언트용)
 
 ```bash
-uv run realestate-stats-mcp --transport http --port 8080
+uv run r-one-mcp --transport http --port 8080
 # → http://127.0.0.1:8080/mcp
 ```
 
@@ -131,17 +135,29 @@ uv run realestate-stats-mcp --transport http --port 8080
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `REB_API_KEY` | (필수) | R-ONE 오픈API 인증키 |
-| `REB_CACHE_DIR` | `%LOCALAPPDATA%\realestate-stats-mcp` / `~/.cache/realestate-stats-mcp` | 통계표 목록 캐시 위치 |
+| `REB_CACHE_DIR` | `%LOCALAPPDATA%\r-one-mcp` / `~/.cache/r-one-mcp` | 통계표 목록 캐시 위치 |
 | `REB_CACHE_TTL_DAYS` | `7` | 통계표 목록 캐시 유효기간(일) |
+| `REB_OUTPUT_DIR` | `~/r-one-data` | `save_csv` 상대경로의 기준 폴더 |
 | `MCP_TRANSPORT` / `HOST` / `PORT` | `stdio` / `127.0.0.1` / `8080` | 명령줄 옵션 대신 쓸 수 있음 |
 
-## R-ONE API 실제 동작 (원작자 실측, DEVLOG.md 참고)
+## R-ONE API 실제 동작
 
-- 1회 요청 최대 1,000건 (`ERROR-336`), 일별 트래픽 제한 있음 (`ERROR-337`)
-- `Type=json` 응답은 한글이 깨지는 서버 버그가 있어 항상 XML로 받아 파싱합니다.
-- STATBL_ID 없이 `SttsApiTbl.do`를 부르면 전체 통계표 목록이 나옵니다. 이 서버는 이를 디스크에
-  캐시하고 이름 검색에 씁니다.
+원작자 실측(2026-08, DEVLOG.md)과 2026-11-09 재확인 결과입니다.
+
+- 1회 요청 최대 1,000건 (`ERROR-336`), 일별 트래픽 제한 있음 (`ERROR-337`).
+- 원작자 실측 당시 `Type=json` 응답은 한글이 깨졌습니다. 2026-11 재확인 때는 정상이었지만,
+  검증된 XML 파싱을 그대로 씁니다.
+- STATBL_ID 없이 `SttsApiTbl.do`를 부르면 전체 통계표 목록(2026-11 기준 769건)이 나옵니다.
+  R-ONE이 배포하는 통계코드 엑셀(665건)은 모두 여기에 포함되고, 나머지 104건은 외부 경제지표(STAT_ID
+  `Z000000`)와 상업용부동산 임대동향 일부입니다.
+- 목록에는 조사 ID(STAT_ID)만 있고 조사명·분류 경로는 없습니다. 이 서버는 R-ONE 포털의 분류 트리(통계표
+  목록 엑셀)로 만든 `catalog.json`(769건 중 717건 경로 확보)을 붙여 검색에 씁니다. 엑셀을 새로 받으면
+  `uv run --with pandas --with lxml python scripts/build_catalog.py "All List.xls"`로 다시 만듭니다.
+- 목록의 `DATA_END_YY`는 갱신이 늦습니다 (예: 주간 매매가격지수가 2025로 나오지만 2026년 자료가 있음).
 - GRP_ID/CLS_ID/ITM_ID는 일부만 채워도 되고, 없는 ID를 넣으면 에러 없이 빈 결과가 나옵니다.
+- ITM_ID를 비우면 항목이 여러 개인 표는 같은 시점이 항목별로 중복됩니다
+  (예: 지가변동률의 `변동률`·`누계`). 응답의 `items`로 섞였는지 확인할 수 있습니다.
+- 시작·종료 시점에는 연도만 넣어도 됩니다 (MM 주기에 `START_WRTTIME=2026` → 2026년 1월부터).
 
 ## 자주 쓰는 STATBL_ID 예시
 

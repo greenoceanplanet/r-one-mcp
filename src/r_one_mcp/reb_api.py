@@ -63,7 +63,7 @@ def _cache_dir() -> Path:
         return Path(custom)
     base = os.environ.get("XDG_CACHE_HOME") or os.environ.get("LOCALAPPDATA")
     root = Path(base) if base else Path.home() / ".cache"
-    return root / "realestate-stats-mcp"
+    return root / "r-one-mcp"
 
 
 def _cache_ttl_seconds() -> float:
@@ -184,6 +184,29 @@ CYCLE_WORDS = {
 }
 
 
+# API의 통계표 목록에는 조사 ID(STAT_ID)만 있고 조사명·분류 경로가 없다.
+# R-ONE 포털 분류 트리(All List.xls)로 만든 catalog.json에서 경로를 붙인다
+# (예: 전국주택가격동향조사 > 주간아파트동향 > 매매가격지수). 다시 만들려면 scripts/build_catalog.py.
+# 주간 통계표는 이름에 "아파트"가 없지만 경로에 "주간아파트동향"이 있어 검색에 걸린다.
+def _load_catalog() -> dict:
+    try:
+        return json.loads((Path(__file__).with_name("catalog.json")).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"surveys": {}, "tables": {}}
+
+
+_CATALOG = _load_catalog()
+
+
+def survey_info(t: dict) -> tuple[str, str]:
+    """통계표의 (조사명, 하위 분류 경로)를 돌려준다. 모르면 빈 문자열."""
+    path = _CATALOG["tables"].get(t.get("STATBL_ID", ""))
+    if path:
+        survey, _, section = path.partition(">")
+        return survey, section
+    return _CATALOG["surveys"].get(t.get("STAT_ID", ""), ""), ""
+
+
 def _norm(s: str) -> str:
     return s.replace(" ", "").lower()
 
@@ -195,10 +218,10 @@ def _cycles(t: dict) -> list[str]:
 def search_statistics_tables(keyword: str, cycle: str | None = None) -> tuple[list[dict], dict]:
     """통계표명으로 통계표를 찾는다. (결과, 검색 정보)를 반환한다.
 
-    - 키워드를 공백으로 나눠 모든 단어가 통계표명에 들어간 표를 찾는다 (순서·띄어쓰기 무관).
+    - 키워드를 공백으로 나눠 모든 단어가 통계표명 또는 조사명·하위 분류에 들어간 표를 찾는다
+      (순서·띄어쓰기 무관). 예: "아파트 주간 매매" → 주간아파트동향의 (주) 매매가격지수.
     - "주간", "월별", "분기" 같은 주기 표현은 이름 매칭 대신 주기 필터로 쓴다.
-    - 모든 단어가 맞는 표가 없으면, 가장 많은 단어가 맞는 표를 대신 돌려준다
-      (예: 주간 지수 표 이름에는 "아파트"가 없어서 "아파트 주간 매매"가 전부 맞지 않는다).
+    - 모든 단어가 맞는 표가 없으면, 가장 많은 단어가 맞는 표를 대신 돌려준다.
     """
     cycle = cycle.strip().upper() if cycle else None
     tokens: list[str] = []
@@ -212,7 +235,7 @@ def search_statistics_tables(keyword: str, cycle: str | None = None) -> tuple[li
     tables = [t for t in get_all_statistics_tables() if not cycle or cycle in _cycles(t)]
     scored = []
     for t in tables:
-        name = _norm(t.get("STATBL_NM", ""))
+        name = _norm(" ".join((t.get("STATBL_NM", ""), *survey_info(t))))
         hits = sum(tok in name for tok in tokens)
         scored.append((hits, t))
 
@@ -226,7 +249,7 @@ def search_statistics_tables(keyword: str, cycle: str | None = None) -> tuple[li
         info["match"] = "none"
         return [], info
     partial = [t for hits, t in scored if hits == best]
-    name_all = " ".join(_norm(t.get("STATBL_NM", "")) for t in partial)
+    name_all = " ".join(_norm(" ".join((t.get("STATBL_NM", ""), *survey_info(t)))) for t in partial)
     info["match"] = "partial"
     info["unmatched_tokens"] = [tok for tok in tokens if tok not in name_all]
     return partial, info

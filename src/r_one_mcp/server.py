@@ -1,4 +1,4 @@
-"""realestate-stats-mcp — 한국부동산원(R-ONE) 부동산통계 범용 조회 MCP 서버.
+"""r-one-mcp — 한국부동산원(R-ONE) 부동산통계 범용 조회 MCP 서버.
 
 특정 클라이언트에 묶이지 않도록 표준 MCP만 사용한다.
 - 기본: stdio (Claude Code/Desktop, Cursor, Codex, Gemini CLI, VS Code 등 대부분의 에이전트)
@@ -11,6 +11,7 @@ R-ONE API는 통계표코드(STATBL_ID)로 통계를 고르는 구조라, 통계
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 from pathlib import Path
 
@@ -45,7 +46,7 @@ INSTRUCTIONS = """\
 주의: R-ONE API는 일별 트래픽 제한이 있으므로 기간·지역을 좁혀서 조회한다.
 """
 
-mcp = FastMCP("realestate-stats", instructions=INSTRUCTIONS, version=__version__)
+mcp = FastMCP("r-one-mcp", instructions=INSTRUCTIONS, version=__version__)
 
 
 def _pick(row: dict, fields: tuple[str, ...]) -> dict:
@@ -63,20 +64,21 @@ TABLE_FIELDS = ("STATBL_ID", "STATBL_NM", "DTACYCLE_CD", "DTACYCLE_NM",
                 "DATA_START_YY", "DATA_END_YY", "RPSTUI_NM")
 ITEM_FIELDS = ("ITM_TAG", "ITM_ID", "PAR_ITM_ID", "ITM_NM", "ITM_FULLNM", "UI_NM")
 DATA_FIELDS = ("WRTTIME_IDTFR_ID", "WRTTIME_DESC", "CLS_ID", "CLS_NM", "CLS_FULLNM",
-               "GRP_NM", "ITM_NM", "ITM_FULLNM", "DTA_VAL", "UI_NM")
+               "GRP_ID", "GRP_NM", "ITM_ID", "ITM_NM", "ITM_FULLNM", "DTA_VAL", "UI_NM")
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
 def search_statistics(keyword: str, cycle: str | None = None, limit: int = 50) -> dict:
     """R-ONE 통계표를 이름으로 검색한다.
 
-    키워드를 공백으로 나눈 모든 단어가 통계표명에 들어간 항목을 찾는다 (순서·띄어쓰기 무관).
-    예: "아파트 매매", "전세 지수", "지가", "주간 매매". 빈 문자열이면 전체 목록.
+    키워드를 공백으로 나눈 모든 단어가 통계표명 또는 조사명(SURVEY_NM)·하위 분류(SECTION_NM)에
+    들어간 항목을 찾는다 (순서·띄어쓰기 무관). 빈 문자열이면 전체 목록.
+    예: "아파트 주간 매매", "전세 지수", "지가", "실거래 아파트", "임대동향 공실률".
     "주간/월간/분기/반기/연간" 같은 주기 표현은 주기 필터로 처리한다.
     모든 단어가 맞는 표가 없으면 가장 많이 맞는 표를 돌려주고 match="partial"로 알린다.
 
-    참고: 주간 통계표(주간아파트동향)는 이름이 "(주) 매매가격지수"처럼 되어 있고 "아파트"가
-    들어 있지 않다. 통계표 목록은 로컬에 캐시되므로(기본 7일) 반복 검색해도 트래픽을 쓰지 않는다.
+    참고: 주간아파트동향(전국주택가격동향조사) 통계표는 이름이 "(주) 매매가격지수"처럼 되어 있어
+    "아파트"가 없지만 조사 분류로 찾힌다. 통계표 목록은 로컬에 캐시된다(기본 7일).
 
     Args:
         keyword: 통계표명 검색어
@@ -87,10 +89,20 @@ def search_statistics(keyword: str, cycle: str | None = None, limit: int = 50) -
         match: "all"(모든 단어 일치) / "partial"(일부 단어만 일치) / "none",
         unmatched_tokens: partial일 때 어느 표에도 없던 단어,
         cycle: 실제 적용된 주기 필터, total: 검색된 전체 건수, count: 반환 건수,
-        results: [{STATBL_ID, STATBL_NM, DTACYCLE_CD(쉼표로 여러 주기 가능), DTACYCLE_NM,
-                   DATA_START_YY, DATA_END_YY, RPSTUI_NM}]
+        results: [{STATBL_ID, STATBL_NM, SURVEY_NM(조사명), SECTION_NM(조사 안의 분류 경로, 예: "주간아파트동향>매매가격지수"),
+                   DTACYCLE_CD(쉼표로 여러 주기 가능), DTACYCLE_NM,
+                   DATA_START_YY, DATA_END_YY(목록 메타값이라 실제 최신 시점보다 늦을 수 있음),
+                   RPSTUI_NM(기준시점)}]
     """
     rows, info = _run(reb_api.search_statistics_tables, keyword, cycle)
+
+    def table(r: dict) -> dict:
+        survey, section = reb_api.survey_info(r)
+        d = _pick(r, TABLE_FIELDS)
+        d["SURVEY_NM"] = survey or None
+        d["SECTION_NM"] = section or None
+        return d
+
     limit = max(1, limit)
     out = {"match": info["match"], "cycle": info["cycle"]}
     if info["match"] == "partial":
@@ -101,7 +113,7 @@ def search_statistics(keyword: str, cycle: str | None = None, limit: int = 50) -
     out.update({
         "total": len(rows),
         "count": min(len(rows), limit),
-        "results": [_pick(r, TABLE_FIELDS) for r in rows[:limit]],
+        "results": [table(r) for r in rows[:limit]],
     })
     return out
 
@@ -129,7 +141,31 @@ def get_statistics_items(statbl_id: str, itm_tag: str | None = None,
     return {"count": len(rows), "results": [_pick(r, ITEM_FIELDS) for r in rows]}
 
 
-@mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
+def _output_dir() -> Path:
+    return Path(os.environ.get("REB_OUTPUT_DIR") or Path.home() / "r-one-data")
+
+
+def _resolve_csv_path(save_csv: str, statbl_id: str) -> Path:
+    """상대경로는 REB_OUTPUT_DIR(기본 ~/r-one-data) 기준. 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다.
+
+    stdio 서버의 작업 폴더는 클라이언트마다 달라서(uv run --directory면 저장소 폴더) cwd 기준으로 두지 않는다.
+    """
+    path = Path(save_csv).expanduser()
+    if save_csv.strip() in ("", ".", "auto"):
+        path = Path(f"{statbl_id}.csv")
+    if not path.is_absolute():
+        path = _output_dir() / path
+    if path.suffix.lower() != ".csv":
+        path = path.with_suffix(".csv")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stem, n = path.stem, 1
+    while path.exists():
+        path = path.with_name(f"{stem}_{n}.csv")
+        n += 1
+    return path
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True})
 def get_statistics_data(
     statbl_id: str,
     dtacycle_cd: str,
@@ -140,8 +176,9 @@ def get_statistics_data(
     cls_id: str | None = None,
     itm_id: str | None = None,
     max_rows: int = 1000,
+    save_csv: str | None = None,
 ) -> dict:
-    """통계표의 실제 수치를 조회한다.
+    """통계표의 실제 수치를 조회한다. save_csv를 주면 CSV 파일로 저장하고 미리보기만 돌려준다.
 
     시점 형식은 주기코드(dtacycle_cd)에 따라 다르다 (start/end/wrttime_idtfr_id 공통):
         YY(년)   YYYY            예: 2024
@@ -149,8 +186,11 @@ def get_statistics_data(
         QY(분기) YYYY0X (X=1~4)  예: 202304
         MM(월)   YYYYMM          예: 202412
         WK(주)   YYYYWW          예: 202452
+    start/end에는 연도(YYYY)만 넣어도 된다 (MM 주기에 start_wrttime="2026"이면 2026년 1월부터).
 
     grp_id/cls_id/itm_id는 get_statistics_items로 확인한다. 일부만 채워도 된다.
+    itm_id를 비우면 항목이 여러 개인 표(예: 변동률·누계)는 같은 시점이 항목별로 중복되어 나오므로,
+    필요한 항목이 정해져 있으면 itm_id를 지정한다.
     존재하지 않는 코드를 넣으면 에러 없이 빈 결과(count=0)가 나온다.
 
     Args:
@@ -159,12 +199,17 @@ def get_statistics_data(
         start_wrttime / end_wrttime: 조회 기간 (옵션)
         wrttime_idtfr_id: 특정 시점 하나만 조회 (옵션)
         grp_id / cls_id / itm_id: 그룹 / 분류(주로 지역) / 항목 필터 (옵션)
-        max_rows: 최대 반환 건수 (기본 1000). truncated=true면 조건을 좁혀 다시 조회한다.
+        max_rows: 최대 조회 건수 (기본 1000). truncated=true면 조건을 좁히거나 늘려 다시 조회한다.
+        save_csv: CSV 저장 경로 (옵션). 상대경로·파일명은 REB_OUTPUT_DIR(기본 ~/r-one-data) 기준,
+            "auto"면 <STATBL_ID>.csv. 같은 이름이 있으면 덮어쓰지 않고 _1, _2를 붙인다.
+            엑셀에서 바로 열리도록 UTF-8(BOM)으로 저장한다. 결과가 크면 이 옵션을 쓰는 편이 낫다.
 
     Returns:
-        total: 조건에 맞는 전체 건수, count: 반환 건수, truncated: 잘렸는지 여부,
-        results: [{WRTTIME_IDTFR_ID, WRTTIME_DESC, CLS_ID, CLS_NM, CLS_FULLNM, GRP_NM,
-                   ITM_NM, ITM_FULLNM, DTA_VAL, UI_NM}]
+        total: 조건에 맞는 전체 건수, count: 가져온 건수, truncated: 잘렸는지 여부,
+        items: 결과에 섞여 있는 항목명 목록 (2개 이상이면 항목별로 나눠 읽을 것),
+        results: [{WRTTIME_IDTFR_ID, WRTTIME_DESC, CLS_ID, CLS_NM, CLS_FULLNM, GRP_ID, GRP_NM,
+                   ITM_ID, ITM_NM, ITM_FULLNM, DTA_VAL, UI_NM}]
+        save_csv를 준 경우: results 대신 saved_path(저장된 파일 경로)와 preview(앞 5건)
     """
     rows, total = _run(
         reb_api.get_statistics_data,
@@ -178,17 +223,31 @@ def get_statistics_data(
         itm_id=itm_id,
         max_rows=max(1, max_rows),
     )
-    return {
+    picked = [_pick(r, DATA_FIELDS) for r in rows]
+    out = {
         "total": total,
         "count": len(rows),
         "truncated": total > len(rows),
-        "results": [_pick(r, DATA_FIELDS) for r in rows],
+        "items": sorted({r.get("ITM_NM") or "" for r in rows}),
     }
+    if save_csv is None:
+        out["results"] = picked
+        return out
+
+    path = _resolve_csv_path(save_csv, statbl_id)
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=("STATBL_ID", *DATA_FIELDS))
+        w.writeheader()
+        for r in picked:
+            w.writerow({"STATBL_ID": statbl_id, **r})
+    out["saved_path"] = str(path)
+    out["preview"] = picked[:5]
+    return out
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="realestate-stats-mcp",
+        prog="r-one-mcp",
         description="한국부동산원 R-ONE 부동산통계 MCP 서버",
     )
     parser.add_argument("--transport", choices=["stdio", "http"],

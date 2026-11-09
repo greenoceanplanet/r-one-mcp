@@ -1,12 +1,13 @@
-# CLAUDE.md — realestate-stats-mcp
+# CLAUDE.md — r-one-mcp
 
 한국부동산원 R-ONE 부동산통계 Open API용 MCP 서버. 특정 클라이언트에 묶이지 않는 로컬 실행용.
 
 ## 구조
 
-- `src/realestate_stats_mcp/reb_api.py` — R-ONE API 클라이언트 (MCP 의존 없음)
-- `src/realestate_stats_mcp/server.py` — FastMCP 툴 3개 + `main()` (stdio 기본, `--transport http` 선택)
-- 실행: `uv run realestate-stats-mcp`
+- `src/r_one_mcp/reb_api.py` — R-ONE API 클라이언트 (MCP 의존 없음)
+- `src/r_one_mcp/server.py` — FastMCP 툴 3개 + `main()` (stdio 기본, `--transport http` 선택)
+- `src/r_one_mcp/catalog.json` — 통계표ID → R-ONE 분류 경로 (`scripts/build_catalog.py`로 생성)
+- 실행: `uv run r-one-mcp`
 - `DEVPLAN.md`, `DEVLOG.md` — 원작자의 API 실측 기록 (fly.io 배포 관련 내용은 더 이상 해당 없음)
 
 ## 원칙

@@ -1035,8 +1035,8 @@ wheels = [
 ]
 
 [[package]]
-name = "realestate-stats-mcp"
-version = "0.2.0"
+name = "r-one-mcp"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
