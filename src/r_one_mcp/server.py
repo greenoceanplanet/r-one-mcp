@@ -195,7 +195,7 @@ async def get_statistics_data(
     itm_id: str | None = None,
     region: str | None = None,
     leaf_only: bool = False,
-    max_rows: int = 1000,
+    max_rows: int | None = None,
     save_csv: str | None = None,
 ) -> dict:
     """통계표의 실제 수치를 조회한다. save_csv를 주면 CSV 파일로 저장하고 미리보기만 돌려준다.
@@ -224,9 +224,11 @@ async def get_statistics_data(
         wrttime_idtfr_id: 특정 시점 하나만 조회 (옵션)
         grp_id / cls_id / itm_id: 그룹 / 분류(주로 지역) / 항목 필터 (옵션). cls_id는 쉼표로 여러 개 가능.
         region: 분류(주로 지역) 이름으로 거르기 (옵션, 쉼표로 여러 개). 그 지역과 하위 지역을 모두 포함한다.
+            정확한 이름이 없으면 부분 일치로 찾고(예: "지방" → "지방권") regions_partial로 알린다.
             예: "서울", "서울>강남지역>동남권", "동남권", "서울,경기", "서울>중구"(같은 이름 구분용).
         leaf_only: region으로 찾은 것 중 하위가 없는 말단(예: 구)만 남김 (기본 False → 서울·권역 합계 포함)
-        max_rows: 최대 조회 건수 (기본 1000). truncated=true면 조건을 좁히거나 늘려 다시 조회한다.
+        max_rows: 최대 반환 건수. 기본은 1000, region이나 cls_id 여러 개를 쓰면 10000.
+            truncated=true면 일부 지역·시점이 빠졌을 수 있으므로 hint를 보고 다시 조회한다.
         save_csv: CSV 저장 경로 (옵션). 결과가 크면 이 옵션을 쓰는 편이 낫다.
             - 사용자가 작업 중인 프로젝트 폴더가 있으면 그 안의 절대경로를 넘긴다
               (예: "D:/projects/my-analysis/data/seoul_weekly.csv"). 서버는 프로젝트 폴더를 알 수 없다.
@@ -240,18 +242,23 @@ async def get_statistics_data(
         results: [{WRTTIME_IDTFR_ID, WRTTIME_DESC, CLS_ID, CLS_NM, CLS_FULLNM, GRP_ID, GRP_NM,
                    ITM_ID, ITM_NM, ITM_FULLNM, DTA_VAL, UI_NM}]
         note: 통계표 해석 주의 (있을 때만, 예: 주간아파트동향은 아파트만 대상)
+        hint: 결과가 잘렸을 때 다시 조회하는 방법
         region/cls_id 여러 개를 쓴 경우: regions(포함된 분류 경로 목록), regions_missing(못 찾은 이름),
+            regions_partial(부분 일치로 찾은 이름: {입력: [찾은 경로]}),
             fetch(strategy: per_code/full_then_filter, api_calls: R-ONE 호출 수)
         save_csv를 준 경우: results 대신 saved_path(저장된 파일 경로), saved_base(기준 폴더를 정한 방식:
             absolute/REB_OUTPUT_DIR/home), preview(앞 5건)
     """
     common = dict(start_wrttime=start_wrttime, end_wrttime=end_wrttime,
                   wrttime_idtfr_id=wrttime_idtfr_id, grp_id=grp_id, itm_id=itm_id)
-    max_rows = max(1, max_rows)
     codes = [c.strip() for c in (cls_id or "").split(",") if c.strip()]
+    if max_rows is None:
+        max_rows = 10000 if (region or len(codes) > 1) else 1000
+    max_rows = max(1, max_rows)
     extra: dict = {}
     if region:
-        found, missing = await asyncio.to_thread(_run, reb_api.resolve_regions, statbl_id, region, leaf_only)
+        found, missing, partial = await asyncio.to_thread(
+            _run, reb_api.resolve_regions, statbl_id, region, leaf_only)
         if not found and not codes:
             raise ToolError(f"'{region}'에 해당하는 분류가 없습니다. get_statistics_items(itm_tag='분류')로 "
                             "이름을 확인하세요.")
@@ -259,6 +266,8 @@ async def get_statistics_data(
         extra["regions"] = [c.get("ITM_FULLNM") or c.get("ITM_NM") for c in found]
         if missing:
             extra["regions_missing"] = missing
+        if partial:
+            extra["regions_partial"] = partial
 
     if len(codes) <= 1:
         rows, total = await asyncio.to_thread(
@@ -276,6 +285,12 @@ async def get_statistics_data(
         "truncated": total > len(rows),
         "items": sorted({r.get("ITM_NM") or "" for r in rows}),
     }
+    if out["truncated"]:
+        tips = ["max_rows를 늘리기", "기간(start_wrttime/end_wrttime)을 좁히기"]
+        if region and not leaf_only:
+            tips.insert(0, "leaf_only=True로 상위 지역 합계를 빼기")
+        out["hint"] = (f"전체 {total}건 중 {len(rows)}건만 반환해 일부 지역·시점이 빠졌을 수 있다. "
+                       + ", ".join(tips) + " 중 하나로 다시 조회하거나 save_csv로 저장한다.")
     out.update(extra)
     note = reb_api.table_note(statbl_id)
     if note:

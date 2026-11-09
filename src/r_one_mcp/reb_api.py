@@ -324,8 +324,12 @@ def get_classes(statbl_id: str) -> list[dict]:
     return _class_cache[statbl_id]
 
 
-def resolve_regions(statbl_id: str, region: str, leaf_only: bool = False) -> tuple[list[dict], list[str]]:
-    """지역(분류) 이름으로 CLS 항목을 찾는다. (찾은 항목, 못 찾은 이름)을 반환한다.
+PARTIAL_MATCH_LIMIT = 10
+
+
+def resolve_regions(statbl_id: str, region: str,
+                    leaf_only: bool = False) -> tuple[list[dict], list[str], dict[str, list[str]]]:
+    """지역(분류) 이름으로 CLS 항목을 찾는다. (찾은 항목, 못 찾은 이름, 부분 일치 내역)을 반환한다.
 
     region은 쉼표로 여러 개를 줄 수 있다. 각 이름은
     - 전체 경로("서울>강남지역>동남권")와 같거나
@@ -333,6 +337,10 @@ def resolve_regions(statbl_id: str, region: str, leaf_only: bool = False) -> tup
     같은 이름이 여러 곳에 있으면(예: "중구") 모두 포함하므로, 좁히려면 "서울>강북지역>도심권>중구"처럼
     경로로 쓰거나 상위 지역과 함께 "서울>중구"처럼 쓴다 (경로의 첫 부분과 마지막 이름으로 찾는다).
     leaf_only=True면 하위 항목이 없는 말단(예: 구)만 남긴다.
+
+    정확히 같은 이름이 없으면 그 말로 시작하는 이름(예: "지방" → "지방권"), 그래도 없으면 그 말이 들어간
+    이름을 찾는다. 부분 일치는 결과 dict에 {입력: [찾은 경로]}로 알리고, 후보가 너무 많으면(10개 초과)
+    찾지 못한 것으로 처리한다.
     """
     classes = get_classes(statbl_id)
     by_id = {c["ITM_ID"]: c for c in classes}
@@ -343,8 +351,24 @@ def resolve_regions(statbl_id: str, region: str, leaf_only: bool = False) -> tup
     def path(c: dict) -> str:
         return _norm(c.get("ITM_FULLNM") or c.get("ITM_NM") or "")
 
+    def top_only(cands: list[dict]) -> list[dict]:
+        """후보 중 다른 후보의 하위인 것은 뺀다 (상위를 고르면 하위는 어차피 포함된다)."""
+        ids = {c["ITM_ID"] for c in cands}
+        out = []
+        for c in cands:
+            par, nested = c.get("PAR_ITM_ID"), False
+            while par and par in by_id:
+                if par in ids:
+                    nested = True
+                    break
+                par = by_id[par].get("PAR_ITM_ID")
+            if not nested:
+                out.append(c)
+        return out
+
     picked: dict[str, dict] = {}
     missing: list[str] = []
+    partial: dict[str, list[str]] = {}
     for raw in region.split(","):
         name = _norm(raw)
         if not name:
@@ -357,6 +381,16 @@ def resolve_regions(statbl_id: str, region: str, leaf_only: bool = False) -> tup
             or _norm(c.get("ITM_NM", "")) == name
             or (tail and path(c).startswith(head + ">") and _norm(c.get("ITM_NM", "")) == last)
         ]
+        if not roots and len(last) >= 2:
+            for test in (lambda nm: nm.startswith(last), lambda nm: last in nm):
+                cands = [c for c in classes if test(_norm(c.get("ITM_NM", "")))
+                         and (not tail or path(c).startswith(head + ">"))]
+                cands = top_only(cands)
+                if cands:
+                    if len(cands) <= PARTIAL_MATCH_LIMIT:
+                        roots = cands
+                        partial[raw.strip()] = [c.get("ITM_FULLNM") or c.get("ITM_NM") for c in cands]
+                    break
         if not roots:
             missing.append(raw.strip())
             continue
@@ -371,7 +405,7 @@ def resolve_regions(statbl_id: str, region: str, leaf_only: bool = False) -> tup
     if leaf_only:
         result = [c for c in result if not children.get(c["ITM_ID"])]
     result.sort(key=lambda c: int(c["ITM_ID"]) if c["ITM_ID"].isdigit() else 0)
-    return result, missing
+    return result, missing, partial
 
 
 def get_statistics_data_multi(
