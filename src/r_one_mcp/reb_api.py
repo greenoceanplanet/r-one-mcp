@@ -306,3 +306,102 @@ def get_statistics_data(
     }
     params.update({k: v for k, v in optional.items() if v})
     return _call_pages("SttsApiTblData.do", params, max_rows=max_rows)
+
+
+# --- 지역(분류) 필터 ---------------------------------------------------------
+#
+# R-ONE의 CLS_ID 필터는 코드 하나만 받고, 상위 코드(예: 서울)를 주면 그 합계 1건만 나온다.
+# "서울의 모든 구"처럼 여러 분류를 받으려면 (a) 코드마다 따로 호출하거나 (b) 전체를 받아 걸러야 한다.
+# 아래 함수는 두 방법 중 R-ONE 호출 수가 적은 쪽을 고른다.
+
+_class_cache: dict[str, list[dict]] = {}
+
+
+def get_classes(statbl_id: str) -> list[dict]:
+    """통계표의 '분류' 항목 목록 (프로세스 동안 캐시)."""
+    if statbl_id not in _class_cache:
+        _class_cache[statbl_id] = get_statistics_items(statbl_id, "분류")
+    return _class_cache[statbl_id]
+
+
+def resolve_regions(statbl_id: str, region: str, leaf_only: bool = False) -> tuple[list[dict], list[str]]:
+    """지역(분류) 이름으로 CLS 항목을 찾는다. (찾은 항목, 못 찾은 이름)을 반환한다.
+
+    region은 쉼표로 여러 개를 줄 수 있다. 각 이름은
+    - 전체 경로("서울>강남지역>동남권")와 같거나
+    - 항목명("동남권", "강남구")과 같은 항목을 찾고, 그 아래 하위 항목을 모두 포함한다.
+    같은 이름이 여러 곳에 있으면(예: "중구") 모두 포함하므로, 좁히려면 "서울>강북지역>도심권>중구"처럼
+    경로로 쓰거나 상위 지역과 함께 "서울>중구"처럼 쓴다 (경로의 첫 부분과 마지막 이름으로 찾는다).
+    leaf_only=True면 하위 항목이 없는 말단(예: 구)만 남긴다.
+    """
+    classes = get_classes(statbl_id)
+    by_id = {c["ITM_ID"]: c for c in classes}
+    children: dict[str, list[str]] = {}
+    for c in classes:
+        children.setdefault(c.get("PAR_ITM_ID", ""), []).append(c["ITM_ID"])
+
+    def path(c: dict) -> str:
+        return _norm(c.get("ITM_FULLNM") or c.get("ITM_NM") or "")
+
+    picked: dict[str, dict] = {}
+    missing: list[str] = []
+    for raw in region.split(","):
+        name = _norm(raw)
+        if not name:
+            continue
+        head, _, tail = name.partition(">")
+        last = name.rsplit(">", 1)[-1]
+        roots = [
+            c for c in classes
+            if path(c) == name
+            or _norm(c.get("ITM_NM", "")) == name
+            or (tail and path(c).startswith(head + ">") and _norm(c.get("ITM_NM", "")) == last)
+        ]
+        if not roots:
+            missing.append(raw.strip())
+            continue
+        stack = [c["ITM_ID"] for c in roots]
+        while stack:
+            cid = stack.pop()
+            if cid in by_id and cid not in picked:
+                picked[cid] = by_id[cid]
+                stack.extend(children.get(cid, []))
+
+    result = list(picked.values())
+    if leaf_only:
+        result = [c for c in result if not children.get(c["ITM_ID"])]
+    result.sort(key=lambda c: int(c["ITM_ID"]) if c["ITM_ID"].isdigit() else 0)
+    return result, missing
+
+
+def get_statistics_data_multi(
+    statbl_id: str,
+    dtacycle_cd: str,
+    cls_ids: list[str],
+    **kwargs,
+) -> tuple[list[dict], int, dict]:
+    """여러 CLS_ID의 데이터를 모은다. (row 목록, 건수, 조회 방식 정보)를 반환한다."""
+    wanted = list(dict.fromkeys(cls_ids))
+    if len(wanted) == 1:
+        rows, total = get_statistics_data(statbl_id, dtacycle_cd, cls_id=wanted[0], **kwargs)
+        return rows, total, {"strategy": "single", "api_calls": max(1, -(-total // MAX_PAGE_SIZE))}
+
+    # 전체 건수를 1건짜리 호출로 알아낸 뒤 호출 수를 비교한다.
+    _, total_all = get_statistics_data(statbl_id, dtacycle_cd, max_rows=1, **kwargs)
+    n_classes = max(1, len(get_classes(statbl_id)))
+    per_code_pages = max(1, -(-int(total_all / n_classes) // MAX_PAGE_SIZE))
+    per_code_calls = len(wanted) * per_code_pages
+    full_calls = max(1, -(-total_all // MAX_PAGE_SIZE))
+
+    if per_code_calls <= full_calls:
+        rows: list[dict] = []
+        for cid in wanted:
+            part, _ = get_statistics_data(statbl_id, dtacycle_cd, cls_id=cid, **kwargs)
+            rows.extend(part)
+        info = {"strategy": "per_code", "api_calls": 1 + per_code_calls}
+    else:
+        allrows, _ = get_statistics_data(statbl_id, dtacycle_cd, **kwargs)
+        keep = set(wanted)
+        rows = [r for r in allrows if r.get("CLS_ID") in keep]
+        info = {"strategy": "full_then_filter", "api_calls": 1 + full_calls}
+    return rows, len(rows), info

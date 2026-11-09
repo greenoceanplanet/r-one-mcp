@@ -193,6 +193,8 @@ async def get_statistics_data(
     grp_id: str | None = None,
     cls_id: str | None = None,
     itm_id: str | None = None,
+    region: str | None = None,
+    leaf_only: bool = False,
     max_rows: int = 1000,
     save_csv: str | None = None,
 ) -> dict:
@@ -206,6 +208,10 @@ async def get_statistics_data(
         WK(주)   YYYYWW          예: 202452
     start/end에는 연도(YYYY)만 넣어도 된다 (MM 주기에 start_wrttime="2026"이면 2026년 1월부터).
 
+    지역 여러 곳을 한 번에 받으려면 region을 쓴다. 예: region="서울", leaf_only=True → 서울 25개 구만.
+    R-ONE은 상위 지역 코드(서울)를 주면 그 합계 1건만 주므로, 하위 지역이 필요하면 cls_id 대신 region을 쓴다.
+    서버가 '코드별 호출'과 '전체 조회 후 걸러내기' 중 R-ONE 호출이 적은 쪽을 고른다.
+
     grp_id/cls_id/itm_id는 get_statistics_items로 확인한다. 일부만 채워도 된다.
     itm_id를 비우면 항목이 여러 개인 표(예: 변동률·누계)는 같은 시점이 항목별로 중복되어 나오므로,
     필요한 항목이 정해져 있으면 itm_id를 지정한다.
@@ -216,7 +222,10 @@ async def get_statistics_data(
         dtacycle_cd: 주기코드 YY/HY/QY/MM/WK (필수)
         start_wrttime / end_wrttime: 조회 기간 (옵션)
         wrttime_idtfr_id: 특정 시점 하나만 조회 (옵션)
-        grp_id / cls_id / itm_id: 그룹 / 분류(주로 지역) / 항목 필터 (옵션)
+        grp_id / cls_id / itm_id: 그룹 / 분류(주로 지역) / 항목 필터 (옵션). cls_id는 쉼표로 여러 개 가능.
+        region: 분류(주로 지역) 이름으로 거르기 (옵션, 쉼표로 여러 개). 그 지역과 하위 지역을 모두 포함한다.
+            예: "서울", "서울>강남지역>동남권", "동남권", "서울,경기", "서울>중구"(같은 이름 구분용).
+        leaf_only: region으로 찾은 것 중 하위가 없는 말단(예: 구)만 남김 (기본 False → 서울·권역 합계 포함)
         max_rows: 최대 조회 건수 (기본 1000). truncated=true면 조건을 좁히거나 늘려 다시 조회한다.
         save_csv: CSV 저장 경로 (옵션). 결과가 크면 이 옵션을 쓰는 편이 낫다.
             - 사용자가 작업 중인 프로젝트 폴더가 있으면 그 안의 절대경로를 넘긴다
@@ -231,22 +240,35 @@ async def get_statistics_data(
         results: [{WRTTIME_IDTFR_ID, WRTTIME_DESC, CLS_ID, CLS_NM, CLS_FULLNM, GRP_ID, GRP_NM,
                    ITM_ID, ITM_NM, ITM_FULLNM, DTA_VAL, UI_NM}]
         note: 통계표 해석 주의 (있을 때만, 예: 주간아파트동향은 아파트만 대상)
+        region/cls_id 여러 개를 쓴 경우: regions(포함된 분류 경로 목록), regions_missing(못 찾은 이름),
+            fetch(strategy: per_code/full_then_filter, api_calls: R-ONE 호출 수)
         save_csv를 준 경우: results 대신 saved_path(저장된 파일 경로), saved_base(기준 폴더를 정한 방식:
             absolute/REB_OUTPUT_DIR/home), preview(앞 5건)
     """
-    rows, total = await asyncio.to_thread(
-        _run,
-        reb_api.get_statistics_data,
-        statbl_id=statbl_id,
-        dtacycle_cd=dtacycle_cd,
-        start_wrttime=start_wrttime,
-        end_wrttime=end_wrttime,
-        wrttime_idtfr_id=wrttime_idtfr_id,
-        grp_id=grp_id,
-        cls_id=cls_id,
-        itm_id=itm_id,
-        max_rows=max(1, max_rows),
-    )
+    common = dict(start_wrttime=start_wrttime, end_wrttime=end_wrttime,
+                  wrttime_idtfr_id=wrttime_idtfr_id, grp_id=grp_id, itm_id=itm_id)
+    max_rows = max(1, max_rows)
+    codes = [c.strip() for c in (cls_id or "").split(",") if c.strip()]
+    extra: dict = {}
+    if region:
+        found, missing = await asyncio.to_thread(_run, reb_api.resolve_regions, statbl_id, region, leaf_only)
+        if not found and not codes:
+            raise ToolError(f"'{region}'에 해당하는 분류가 없습니다. get_statistics_items(itm_tag='분류')로 "
+                            "이름을 확인하세요.")
+        codes += [c["ITM_ID"] for c in found]
+        extra["regions"] = [c.get("ITM_FULLNM") or c.get("ITM_NM") for c in found]
+        if missing:
+            extra["regions_missing"] = missing
+
+    if len(codes) <= 1:
+        rows, total = await asyncio.to_thread(
+            _run, reb_api.get_statistics_data, statbl_id=statbl_id, dtacycle_cd=dtacycle_cd,
+            cls_id=codes[0] if codes else None, max_rows=max_rows, **common)
+    else:
+        rows, total, info = await asyncio.to_thread(
+            _run, reb_api.get_statistics_data_multi, statbl_id, dtacycle_cd, codes, **common)
+        rows = rows[:max_rows]
+        extra["fetch"] = info
     picked = [_pick(r, DATA_FIELDS) for r in rows]
     out = {
         "total": total,
@@ -254,6 +276,7 @@ async def get_statistics_data(
         "truncated": total > len(rows),
         "items": sorted({r.get("ITM_NM") or "" for r in rows}),
     }
+    out.update(extra)
     note = reb_api.table_note(statbl_id)
     if note:
         out["note"] = note

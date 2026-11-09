@@ -18,7 +18,7 @@ R-ONE API는 통계마다 엔드포인트가 따로 있지 않고 통계표코�
 |---|---|
 | `search_statistics(keyword, cycle?, limit?)` | 통계표 검색. 통계표명과 조사명·하위 분류(예: 전국주택가격동향조사 > 주간아파트동향)에서 찾음. "주간/월간/분기/연간"은 주기 필터로 처리. 목록은 로컬 캐시 |
 | `get_statistics_items(statbl_id, itm_tag?, name_filter?)` | 지역(CLS_ID)·항목(ITM_ID)·그룹(GRP_ID) 코드 조회. `name_filter="종로구"`처럼 걸러낼 수 있음 |
-| `get_statistics_data(statbl_id, dtacycle_cd, ..., save_csv?)` | 실제 수치 조회. 값(DTA_VAL)과 단위(UI_NM)를 함께 반환. `save_csv`를 주면 CSV로 저장하고 미리보기만 반환 |
+| `get_statistics_data(statbl_id, dtacycle_cd, ..., region?, leaf_only?, save_csv?)` | 실제 수치 조회. 값(DTA_VAL)과 단위(UI_NM)를 함께 반환. `region="서울", leaf_only=True`면 서울 25개 구만. `save_csv`를 주면 CSV로 저장하고 미리보기만 반환 |
 
 **CSV 저장**: 결과가 커서 대화에 다 넣기 어려울 때 씁니다.
 
@@ -169,6 +169,9 @@ uv run r-one-mcp --transport http --port 8080
   `uv run --with pandas --with lxml python scripts/build_catalog.py "All List.xls"`로 다시 만듭니다.
 - 목록의 `DATA_END_YY`는 갱신이 늦습니다 (예: 주간 매매가격지수가 2025로 나오지만 2026년 자료가 있음).
 - GRP_ID/CLS_ID/ITM_ID는 일부만 채워도 되고, 없는 ID를 넣으면 에러 없이 빈 결과가 나옵니다.
+- CLS_ID는 코드 하나만 받고, 상위 지역 코드(예: 서울)를 주면 그 합계 1건만 나옵니다. 그래서 `region`
+  옵션은 하위 지역 코드를 찾은 뒤 "코드별 호출"과 "전체 조회 후 걸러내기" 중 R-ONE 호출이 적은 쪽을 고릅니다
+  (예: 서울 25개 구 2026년 주간 = 전체 조회 12회, 코드별이면 25회).
 - ITM_ID를 비우면 항목이 여러 개인 표는 같은 시점이 항목별로 중복됩니다
   (예: 지가변동률의 `변동률`·`누계`). 응답의 `items`로 섞였는지 확인할 수 있습니다.
 - 시작·종료 시점에는 연도만 넣어도 됩니다 (MM 주기에 `START_WRTTIME=2026` → 2026년 1월부터).
