@@ -20,9 +20,23 @@ R-ONE API는 통계마다 엔드포인트가 따로 있지 않고 통계표코�
 | `get_statistics_items(statbl_id, itm_tag?, name_filter?)` | 지역(CLS_ID)·항목(ITM_ID)·그룹(GRP_ID) 코드 조회. `name_filter="종로구"`처럼 걸러낼 수 있음 |
 | `get_statistics_data(statbl_id, dtacycle_cd, ..., save_csv?)` | 실제 수치 조회. 값(DTA_VAL)과 단위(UI_NM)를 함께 반환. `save_csv`를 주면 CSV로 저장하고 미리보기만 반환 |
 
-**CSV 저장**: `save_csv="auto"`면 `<STATBL_ID>.csv`, 파일명이나 상대경로면 `REB_OUTPUT_DIR`(기본 `~/r-one-data`)
-아래에 저장합니다. 절대경로도 됩니다. 같은 이름이 있으면 덮어쓰지 않고 `_1`, `_2`를 붙이고, 엑셀에서 바로
-열리도록 UTF-8(BOM)으로 씁니다. 결과가 커서 대화에 다 넣기 어려울 때 유용합니다.
+**CSV 저장**: 결과가 커서 대화에 다 넣기 어려울 때 씁니다.
+
+- 프로젝트 폴더에 저장하려면 절대경로를 넘깁니다 (예: `"D:/projects/분석/data/seoul_weekly.csv"`).
+  MCP 서버는 사용자가 어느 프로젝트에서 작업 중인지 알 수 없어서, 작업 폴더를 아는 에이전트가 경로를
+  정하도록 했습니다. 서버 안내문과 도구 설명에 이 규칙이 들어 있어 에이전트가 알아서 그렇게 합니다.
+- 파일명만 주면 `REB_OUTPUT_DIR`(설정했을 때) 또는 `~/r-one-data` 아래에 저장합니다.
+  `"auto"`면 `<STATBL_ID>.csv`.
+- 같은 이름이 있으면 덮어쓰지 않고 `_1`, `_2`를 붙입니다. 엑셀에서 바로 열리도록 UTF-8(BOM)으로 씁니다.
+- 결과의 `saved_base`로 기준 폴더를 어떻게 정했는지 알 수 있습니다 (`absolute` / `REB_OUTPUT_DIR` / `home`).
+
+**통계 해석 주의 (NOTE)**: 표 이름만으로는 알 수 없는 사실은 검색 결과의 `NOTE`, 조회 결과의 `note`로
+알려줍니다. 서버 안내문에도 같은 내용이 있습니다. 문구는 `reb_api.TABLE_NOTES`에서 분류 경로별로 관리합니다.
+
+| 분류 | 주의 |
+|---|---|
+| 전국주택가격동향조사 > 주간아파트동향 | 아파트만 조사합니다. `(주) 매매가격지수`처럼 이름에 "아파트"가 없어도 아파트 지수입니다. 주택종합·연립·단독은 월간동향에 있습니다. |
+| 전국주택가격동향조사 > 월간동향 | 주택유형별로 표가 나뉩니다 (이름 끝의 `_아파트`, `_연립다세대`, `_단독주택`, `_주택종합`). |
 
 **주기코드별 시점 형식**
 
@@ -137,7 +151,7 @@ uv run r-one-mcp --transport http --port 8080
 | `REB_API_KEY` | (필수) | R-ONE 오픈API 인증키 |
 | `REB_CACHE_DIR` | `%LOCALAPPDATA%\r-one-mcp` / `~/.cache/r-one-mcp` | 통계표 목록 캐시 위치 |
 | `REB_CACHE_TTL_DAYS` | `7` | 통계표 목록 캐시 유효기간(일) |
-| `REB_OUTPUT_DIR` | `~/r-one-data` | `save_csv` 상대경로의 기준 폴더 |
+| `REB_OUTPUT_DIR` | `~/r-one-data` | `save_csv`에 파일명·상대경로만 줬을 때의 저장 폴더 |
 | `MCP_TRANSPORT` / `HOST` / `PORT` | `stdio` / `127.0.0.1` / `8080` | 명령줄 옵션 대신 쓸 수 있음 |
 
 ## R-ONE API 실제 동작

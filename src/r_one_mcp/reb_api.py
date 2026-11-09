@@ -207,6 +207,24 @@ def survey_info(t: dict) -> tuple[str, str]:
     return _CATALOG["surveys"].get(t.get("STAT_ID", ""), ""), ""
 
 
+# 분류 경로별 해석 주의. 통계표 이름만 보고는 알 수 없는 사실을 검색·조회 결과에 붙인다.
+TABLE_NOTES = {
+    "전국주택가격동향조사>주간아파트동향": (
+        "주간아파트동향은 아파트만 조사한다. 표 이름에 '아파트'가 없어도 아파트 지수다 "
+        "(주택종합·연립·단독은 월간동향에 있다)."
+    ),
+    "전국주택가격동향조사>월간동향": (
+        "월간동향은 주택유형별로 표가 나뉜다 (표 이름 끝의 _아파트/_연립다세대/_단독주택/_주택종합)."
+    ),
+}
+
+
+def table_note(statbl_id: str) -> str:
+    """통계표의 해석 주의 문구. 없으면 빈 문자열."""
+    path = _CATALOG["tables"].get(statbl_id, "")
+    return " ".join(n for prefix, n in TABLE_NOTES.items() if path.startswith(prefix))
+
+
 def _norm(s: str) -> str:
     return s.replace(" ", "").lower()
 

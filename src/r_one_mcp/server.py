@@ -11,6 +11,7 @@ R-ONE API는 통계표코드(STATBL_ID)로 통계를 고르는 구조라, 통계
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv
 import os
 from pathlib import Path
@@ -43,7 +44,15 @@ INSTRUCTIONS = """\
 2. 특정 지역·항목만 필요하면 get_statistics_items(statbl_id) 로 CLS_ID(주로 지역)·ITM_ID·GRP_ID를 찾는다.
 3. get_statistics_data(...) 로 실제 수치를 조회한다. 결과 값(DTA_VAL)은 단위(UI_NM)와 함께 제시한다.
 
+통계 해석 주의:
+- 주간 통계표((주) 매매가격지수, (주) 전세가격지수 등)는 전국주택가격동향조사의 '주간아파트동향'으로,
+  아파트만 대상이다. 표 이름에 '아파트'가 없어도 아파트 지수로 설명한다.
+- 월간동향은 주택유형별(아파트/연립다세대/단독주택/주택종합)로 표가 나뉜다.
+- 검색·조회 결과에 NOTE/note가 있으면 그 내용을 답변에 반영한다.
+
 주의: R-ONE API는 일별 트래픽 제한이 있으므로 기간·지역을 좁혀서 조회한다.
+결과가 크면 get_statistics_data의 save_csv로 파일에 저장한다. 서버는 사용자의 프로젝트 폴더를 모르므로,
+사용자가 작업 중인 폴더가 있으면 그 안의 절대경로(예: <프로젝트>/data/파일명.csv)를 넘긴다.
 """
 
 mcp = FastMCP("r-one-mcp", instructions=INSTRUCTIONS, version=__version__)
@@ -101,6 +110,9 @@ def search_statistics(keyword: str, cycle: str | None = None, limit: int = 50) -
         d = _pick(r, TABLE_FIELDS)
         d["SURVEY_NM"] = survey or None
         d["SECTION_NM"] = section or None
+        note = reb_api.table_note(r.get("STATBL_ID", ""))
+        if note:
+            d["NOTE"] = note
         return d
 
     limit = max(1, limit)
@@ -141,20 +153,26 @@ def get_statistics_items(statbl_id: str, itm_tag: str | None = None,
     return {"count": len(rows), "results": [_pick(r, ITEM_FIELDS) for r in rows]}
 
 
-def _output_dir() -> Path:
-    return Path(os.environ.get("REB_OUTPUT_DIR") or Path.home() / "r-one-data")
+def _output_base() -> tuple[Path, str]:
+    """상대경로 저장의 기준 폴더와 그 출처. REB_OUTPUT_DIR → ~/r-one-data.
 
-
-def _resolve_csv_path(save_csv: str, statbl_id: str) -> Path:
-    """상대경로는 REB_OUTPUT_DIR(기본 ~/r-one-data) 기준. 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다.
-
-    stdio 서버의 작업 폴더는 클라이언트마다 달라서(uv run --directory면 저장소 폴더) cwd 기준으로 두지 않는다.
+    stdio 서버의 cwd는 클라이언트마다 달라서(uv run --directory면 이 저장소 폴더) 쓰지 않는다.
+    서버는 사용자의 프로젝트 폴더를 알 수 없으므로(MCP roots는 2026-07 스펙에서 폐기 예정),
+    프로젝트에 저장하려면 에이전트가 절대경로를 넘긴다.
     """
+    env = os.environ.get("REB_OUTPUT_DIR")
+    if env:
+        return Path(env).expanduser(), "REB_OUTPUT_DIR"
+    return Path.home() / "r-one-data", "home"
+
+
+def _resolve_csv_path(save_csv: str, statbl_id: str, base: Path) -> Path:
+    """저장 경로를 정한다. 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다."""
     path = Path(save_csv).expanduser()
     if save_csv.strip() in ("", ".", "auto"):
         path = Path(f"{statbl_id}.csv")
     if not path.is_absolute():
-        path = _output_dir() / path
+        path = base / path
     if path.suffix.lower() != ".csv":
         path = path.with_suffix(".csv")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -166,7 +184,7 @@ def _resolve_csv_path(save_csv: str, statbl_id: str) -> Path:
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True})
-def get_statistics_data(
+async def get_statistics_data(
     statbl_id: str,
     dtacycle_cd: str,
     start_wrttime: str | None = None,
@@ -200,18 +218,24 @@ def get_statistics_data(
         wrttime_idtfr_id: 특정 시점 하나만 조회 (옵션)
         grp_id / cls_id / itm_id: 그룹 / 분류(주로 지역) / 항목 필터 (옵션)
         max_rows: 최대 조회 건수 (기본 1000). truncated=true면 조건을 좁히거나 늘려 다시 조회한다.
-        save_csv: CSV 저장 경로 (옵션). 상대경로·파일명은 REB_OUTPUT_DIR(기본 ~/r-one-data) 기준,
-            "auto"면 <STATBL_ID>.csv. 같은 이름이 있으면 덮어쓰지 않고 _1, _2를 붙인다.
-            엑셀에서 바로 열리도록 UTF-8(BOM)으로 저장한다. 결과가 크면 이 옵션을 쓰는 편이 낫다.
+        save_csv: CSV 저장 경로 (옵션). 결과가 크면 이 옵션을 쓰는 편이 낫다.
+            - 사용자가 작업 중인 프로젝트 폴더가 있으면 그 안의 절대경로를 넘긴다
+              (예: "D:/projects/my-analysis/data/seoul_weekly.csv"). 서버는 프로젝트 폴더를 알 수 없다.
+            - 파일명·상대경로만 주면 REB_OUTPUT_DIR(설정 시) 또는 ~/r-one-data 아래에 저장한다.
+              "auto"면 <STATBL_ID>.csv.
+            - 같은 이름이 있으면 덮어쓰지 않고 _1, _2를 붙인다. 엑셀용 UTF-8(BOM)으로 저장한다.
 
     Returns:
         total: 조건에 맞는 전체 건수, count: 가져온 건수, truncated: 잘렸는지 여부,
         items: 결과에 섞여 있는 항목명 목록 (2개 이상이면 항목별로 나눠 읽을 것),
         results: [{WRTTIME_IDTFR_ID, WRTTIME_DESC, CLS_ID, CLS_NM, CLS_FULLNM, GRP_ID, GRP_NM,
                    ITM_ID, ITM_NM, ITM_FULLNM, DTA_VAL, UI_NM}]
-        save_csv를 준 경우: results 대신 saved_path(저장된 파일 경로)와 preview(앞 5건)
+        note: 통계표 해석 주의 (있을 때만, 예: 주간아파트동향은 아파트만 대상)
+        save_csv를 준 경우: results 대신 saved_path(저장된 파일 경로), saved_base(기준 폴더를 정한 방식:
+            absolute/REB_OUTPUT_DIR/home), preview(앞 5건)
     """
-    rows, total = _run(
+    rows, total = await asyncio.to_thread(
+        _run,
         reb_api.get_statistics_data,
         statbl_id=statbl_id,
         dtacycle_cd=dtacycle_cd,
@@ -230,17 +254,25 @@ def get_statistics_data(
         "truncated": total > len(rows),
         "items": sorted({r.get("ITM_NM") or "" for r in rows}),
     }
+    note = reb_api.table_note(statbl_id)
+    if note:
+        out["note"] = note
     if save_csv is None:
         out["results"] = picked
         return out
 
-    path = _resolve_csv_path(save_csv, statbl_id)
+    if Path(save_csv).expanduser().is_absolute():
+        base, how = Path(), "absolute"
+    else:
+        base, how = _output_base()
+    path = _resolve_csv_path(save_csv, statbl_id, base)
     with path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=("STATBL_ID", *DATA_FIELDS))
         w.writeheader()
         for r in picked:
             w.writerow({"STATBL_ID": statbl_id, **r})
     out["saved_path"] = str(path)
+    out["saved_base"] = how
     out["preview"] = picked[:5]
     return out
 
