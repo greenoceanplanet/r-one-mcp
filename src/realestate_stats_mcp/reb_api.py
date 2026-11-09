@@ -173,26 +173,63 @@ def get_all_statistics_tables(refresh: bool = False) -> list[dict]:
     return tables
 
 
-def search_statistics_tables(keyword: str, cycle: str | None = None) -> list[dict]:
-    """통계표명에 키워드의 모든 단어가 들어간 통계표를 찾는다.
+# 검색어에 들어온 주기 표현 → 주기코드. 통계표명에는 "(주)", "(월)"처럼만 적혀 있어서
+# "주간", "월별" 같은 말로는 이름 매칭이 안 되므로 주기 필터로 바꿔 처리한다.
+CYCLE_WORDS = {
+    "주간": "WK", "주별": "WK", "주단위": "WK", "(주)": "WK", "weekly": "WK",
+    "월간": "MM", "월별": "MM", "(월)": "MM", "monthly": "MM",
+    "분기": "QY", "분기별": "QY", "(분기)": "QY", "quarterly": "QY",
+    "반기": "HY", "반기별": "HY", "(반기)": "HY",
+    "연간": "YY", "연도별": "YY", "년별": "YY", "연별": "YY", "(연)": "YY", "yearly": "YY", "annual": "YY",
+}
 
-    "아파트 매매" → "아파트"와 "매매"가 모두 들어간 통계표 (순서·붙여쓰기 무관).
-    cycle을 주면 해당 주기(YY/HY/QY/MM/WK)를 지원하는 통계표만 남긴다.
+
+def _norm(s: str) -> str:
+    return s.replace(" ", "").lower()
+
+
+def _cycles(t: dict) -> list[str]:
+    return (t.get("DTACYCLE_CD") or "").replace(" ", "").split(",")
+
+
+def search_statistics_tables(keyword: str, cycle: str | None = None) -> tuple[list[dict], dict]:
+    """통계표명으로 통계표를 찾는다. (결과, 검색 정보)를 반환한다.
+
+    - 키워드를 공백으로 나눠 모든 단어가 통계표명에 들어간 표를 찾는다 (순서·띄어쓰기 무관).
+    - "주간", "월별", "분기" 같은 주기 표현은 이름 매칭 대신 주기 필터로 쓴다.
+    - 모든 단어가 맞는 표가 없으면, 가장 많은 단어가 맞는 표를 대신 돌려준다
+      (예: 주간 지수 표 이름에는 "아파트"가 없어서 "아파트 주간 매매"가 전부 맞지 않는다).
     """
-    def norm(s: str) -> str:
-        return s.replace(" ", "").lower()
-
-    tokens = [norm(t) for t in keyword.split() if t.strip()]
     cycle = cycle.strip().upper() if cycle else None
-    out = []
-    for t in get_all_statistics_tables():
-        name = norm(t.get("STATBL_NM", ""))
-        if not all(tok in name for tok in tokens):
-            continue
-        if cycle and cycle not in (t.get("DTACYCLE_CD") or "").replace(" ", "").split(","):
-            continue
-        out.append(t)
-    return out
+    tokens: list[str] = []
+    for raw in keyword.split():
+        tok = _norm(raw)
+        if tok in CYCLE_WORDS:
+            cycle = cycle or CYCLE_WORDS[tok]
+        elif tok:
+            tokens.append(tok)
+
+    tables = [t for t in get_all_statistics_tables() if not cycle or cycle in _cycles(t)]
+    scored = []
+    for t in tables:
+        name = _norm(t.get("STATBL_NM", ""))
+        hits = sum(tok in name for tok in tokens)
+        scored.append((hits, t))
+
+    info: dict = {"tokens": tokens, "cycle": cycle, "match": "all"}
+    full = [t for hits, t in scored if hits == len(tokens)]
+    if full or not tokens:
+        return full, info
+
+    best = max((hits for hits, _ in scored), default=0)
+    if best == 0:
+        info["match"] = "none"
+        return [], info
+    partial = [t for hits, t in scored if hits == best]
+    name_all = " ".join(_norm(t.get("STATBL_NM", "")) for t in partial)
+    info["match"] = "partial"
+    info["unmatched_tokens"] = [tok for tok in tokens if tok not in name_all]
+    return partial, info
 
 
 # --- 항목 / 데이터 -----------------------------------------------------------

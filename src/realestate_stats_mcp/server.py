@@ -71,8 +71,12 @@ def search_statistics(keyword: str, cycle: str | None = None, limit: int = 50) -
     """R-ONE 통계표를 이름으로 검색한다.
 
     키워드를 공백으로 나눈 모든 단어가 통계표명에 들어간 항목을 찾는다 (순서·띄어쓰기 무관).
-    예: "아파트 매매", "전세 지수", "지가", "거래". 빈 문자열이면 전체 목록.
-    통계표 목록은 로컬에 캐시되므로(기본 7일) 반복 검색해도 API 트래픽을 쓰지 않는다.
+    예: "아파트 매매", "전세 지수", "지가", "주간 매매". 빈 문자열이면 전체 목록.
+    "주간/월간/분기/반기/연간" 같은 주기 표현은 주기 필터로 처리한다.
+    모든 단어가 맞는 표가 없으면 가장 많이 맞는 표를 돌려주고 match="partial"로 알린다.
+
+    참고: 주간 통계표(주간아파트동향)는 이름이 "(주) 매매가격지수"처럼 되어 있고 "아파트"가
+    들어 있지 않다. 통계표 목록은 로컬에 캐시되므로(기본 7일) 반복 검색해도 트래픽을 쓰지 않는다.
 
     Args:
         keyword: 통계표명 검색어
@@ -80,17 +84,26 @@ def search_statistics(keyword: str, cycle: str | None = None, limit: int = 50) -
         limit: 최대 반환 건수 (기본 50)
 
     Returns:
-        total: 검색된 전체 건수, count: 반환 건수,
+        match: "all"(모든 단어 일치) / "partial"(일부 단어만 일치) / "none",
+        unmatched_tokens: partial일 때 어느 표에도 없던 단어,
+        cycle: 실제 적용된 주기 필터, total: 검색된 전체 건수, count: 반환 건수,
         results: [{STATBL_ID, STATBL_NM, DTACYCLE_CD(쉼표로 여러 주기 가능), DTACYCLE_NM,
                    DATA_START_YY, DATA_END_YY, RPSTUI_NM}]
     """
-    rows = _run(reb_api.search_statistics_tables, keyword, cycle)
+    rows, info = _run(reb_api.search_statistics_tables, keyword, cycle)
     limit = max(1, limit)
-    return {
+    out = {"match": info["match"], "cycle": info["cycle"]}
+    if info["match"] == "partial":
+        out["unmatched_tokens"] = info["unmatched_tokens"]
+        out["note"] = "모든 단어가 들어간 통계표가 없어 가장 많이 일치하는 표를 보여줍니다."
+    elif info["match"] == "none":
+        out["note"] = "일치하는 통계표가 없습니다. 더 짧은 단어(예: '매매', '전세', '지가')로 검색해 보세요."
+    out.update({
         "total": len(rows),
         "count": min(len(rows), limit),
         "results": [_pick(r, TABLE_FIELDS) for r in rows[:limit]],
-    }
+    })
+    return out
 
 
 @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
