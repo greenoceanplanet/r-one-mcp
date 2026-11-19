@@ -10,6 +10,11 @@
 - **웹(원격) 접속**(Streamable HTTP): claude.ai(웹·모바일)의 사용자 지정 커넥터로 붙여 씁니다.
   공개 서버 `https://r-one-mcp.vercel.app/mcp`를 쓰거나 Vercel에 직접 배포할 수 있습니다.
 
+자세한 설치법은 아래를 참고하세요.
+[웹(claude.ai)에서 쓰기](#웹에서-바로-쓰기--claudeai-설치-불필요) ·
+[로컬에서 쓰기](#로컬에서-쓰기--준비) ·
+[직접 배포하기](#직접-배포하기--vercel)
+
 > [hlucent/realestate-stats-mcp](https://github.com/hlucent/realestate-stats-mcp)(fly.io 공개 서버용,
 > 2026-08 서비스 종료)를 포크해 로컬 실행과 웹(원격) 접속을 모두 지원하도록 재구성했습니다.
 
