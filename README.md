@@ -60,9 +60,7 @@ R-ONE API는 통계마다 엔드포인트가 따로 있지 않고 통계표코�
 
 claude.ai(웹·모바일)에서는 아무것도 설치하지 않고 공개 서버에 커넥터로 연결해 씁니다.
 
-1. R-ONE 오픈API 인증키 발급:
-   https://www.reb.or.kr/r-one/portal/openapi/openApiActKeyPage.do
-   (공공데이터포털 키와 다릅니다)
+1. R-ONE 오픈API 인증키 발급 ([아래 안내](#r-one-인증키-발급-방법) 참고)
 2. claude.ai → 설정 → 커넥터 → **사용자 지정 커넥터 추가**
    - Name: 아무 이름 (예: `R-ONE 부동산통계`). 커넥터 목록에 보일 이름일 뿐이며, 키나 URL은 넣지 않습니다.
    - MCP server URL: `https://r-one-mcp.vercel.app/mcp`
@@ -80,9 +78,20 @@ claude.ai(웹·모바일)에서는 아무것도 설치하지 않고 공개 서�
 ## 로컬에서 쓰기 — 준비
 
 1. [uv](https://docs.astral.sh/uv/) 설치
-2. R-ONE 오픈API 인증키 발급:
-   https://www.reb.or.kr/r-one/portal/openapi/openApiActKeyPage.do
-   (공공데이터포털 키와 다릅니다)
+2. R-ONE 오픈API 인증키 발급 ([아래 안내](#r-one-인증키-발급-방법) 참고)
+
+### R-ONE 인증키 발급 방법
+
+웹·로컬 어느 방식이든 인증키가 필요합니다. 무료이며, 따로 회원가입하지 않고 SNS 계정으로 로그인해 받습니다.
+
+1. [R-ONE 인증키 발급 페이지](https://www.reb.or.kr/r-one/portal/openapi/openApiActKeyPage.do)에 접속합니다.
+   (R-ONE 부동산통계정보시스템 → Open API → 인증키 발급내역)
+2. 로그인 화면이 나오면 **네이버·구글·카카오톡** 중 하나로 로그인합니다.
+3. 안내에 따라 인증키를 발급받고, 발급된 키를 복사해 둡니다.
+
+- **공공데이터포털(data.go.kr) 키와 다릅니다.** 공공데이터포털 키를 넣으면 `ERROR-290`(인증키가 유효하지 않음) 오류가 납니다.
+- 인증키 없이 호출하면 R-ONE이 샘플 몇 건만 돌려주므로 반드시 키를 넣어야 합니다.
+- R-ONE API에는 일별 트래픽 제한이 있습니다(`ERROR-337`이 나면 다음 날 다시 시도).
 
 ## 로컬 설치 방법
 
