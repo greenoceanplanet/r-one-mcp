@@ -3,11 +3,15 @@
 한국부동산원 **R-ONE 부동산통계 Open API**를 위한 MCP 서버입니다. 아파트·주택 매매/전세가격지수,
 지가지수, 거래현황 등 R-ONE의 통계표 700여 개를 이름으로 찾고 실제 수치를 조회할 수 있습니다.
 
-표준 MCP(stdio / Streamable HTTP)만 쓰기 때문에 Claude Code, Claude Desktop, Cursor, VS Code,
-Codex CLI, Gemini CLI 등 MCP를 지원하는 에이전트라면 어디서든 쓸 수 있습니다.
+두 가지 방식으로 쓸 수 있습니다.
+
+- **로컬 실행**(stdio): Claude Code, Claude Desktop, Cursor, VS Code, Codex CLI, Gemini CLI 등
+  MCP를 지원하는 에이전트에서 내 PC로 띄워 씁니다. 조회 결과를 CSV로 저장할 수 있습니다.
+- **웹(원격) 접속**(Streamable HTTP): claude.ai(웹·모바일)의 사용자 지정 커넥터로 붙여 씁니다.
+  공개 서버 `https://r-one-mcp.vercel.app/mcp`를 쓰거나 Vercel에 직접 배포할 수 있습니다.
 
 > [hlucent/realestate-stats-mcp](https://github.com/hlucent/realestate-stats-mcp)(fly.io 공개 서버용,
-> 2026-08 서비스 종료)를 포크해 로컬 실행용으로 재구성했습니다.
+> 2026-08 서비스 종료)를 포크해 로컬 실행과 웹(원격) 접속을 모두 지원하도록 재구성했습니다.
 
 ## 제공 도구
 
@@ -48,14 +52,34 @@ R-ONE API는 통계마다 엔드포인트가 따로 있지 않고 통계표코�
 | 월 | MM | YYYYMM | 202401 |
 | 주 | WK | YYYYWW | 202401 |
 
-## 준비
+## 웹에서 바로 쓰기 — claude.ai (설치 불필요)
+
+claude.ai(웹·모바일)에서는 아무것도 설치하지 않고 공개 서버에 커넥터로 연결해 씁니다.
+
+1. R-ONE 오픈API 인증키 발급:
+   https://www.reb.or.kr/r-one/portal/openapi/openApiActKeyPage.do
+   (공공데이터포털 키와 다릅니다)
+2. claude.ai → 설정 → 커넥터 → **사용자 지정 커넥터 추가**
+   - Name: 아무 이름 (예: `R-ONE 부동산통계`). 커넥터 목록에 보일 이름일 뿐이며, 키나 URL은 넣지 않습니다.
+   - MCP server URL: `https://r-one-mcp.vercel.app/mcp`
+   - Request headers: `x-api-key` = `<본인의 R-ONE 인증키>`
+3. 새 대화에서 "서울 아파트 주간 매매가격지수 최근 추이 보여줘"처럼 물어보면 됩니다.
+
+- 서버에는 인증키가 없습니다. 각자 자기 키로 호출하므로 다른 사람과 할당량을 나눠 쓰지 않습니다.
+- claude.ai에 등록한 커넥터는 같은 계정으로 로그인한 Claude Desktop·Claude Code에도 자동으로 나타납니다.
+- 웹에서는 `save_csv`(파일 저장)가 동작하지 않습니다. 결과를 파일로 받으려면 로컬 실행을 쓰세요.
+
+> 개인이 Vercel 무료 플랜으로 운영하는 서버라 예고 없이 멈추거나 바뀔 수 있습니다.
+> 꾸준히 쓰려면 아래 [직접 배포하기](#직접-배포하기--vercel)를 참고하세요.
+
+## 로컬에서 쓰기 — 준비
 
 1. [uv](https://docs.astral.sh/uv/) 설치
 2. R-ONE 오픈API 인증키 발급:
    https://www.reb.or.kr/r-one/portal/openapi/openApiActKeyPage.do
    (공공데이터포털 키와 다릅니다)
 
-## 설치 방법
+## 로컬 설치 방법
 
 ### A. 저장소를 받아서 쓰기 (수정해 가며 쓸 때)
 
@@ -76,7 +100,7 @@ uvx --from git+https://github.com/greenoceanplanet/r-one-mcp r-one-mcp
 
 이 경우 `.env`가 없으므로 키는 클라이언트 설정의 `env`로 넘깁니다.
 
-## API 키 넣는 곳
+## API 키 넣는 곳 (로컬)
 
 다음 순서로 찾습니다. 앞에서 찾으면 뒤는 무시합니다.
 
@@ -84,7 +108,7 @@ uvx --from git+https://github.com/greenoceanplanet/r-one-mcp r-one-mcp
 2. 서버를 실행한 폴더의 `.env`
 3. 저장소 루트의 `.env` (방법 A)
 
-## 클라이언트별 설정
+## 클라이언트별 설정 (로컬)
 
 아래 예시는 방법 A 기준입니다. 방법 B라면 `command`를 `uvx`, `args`를
 `["--from", "git+https://github.com/greenoceanplanet/r-one-mcp", "r-one-mcp"]`로
@@ -145,19 +169,9 @@ uv run r-one-mcp --transport http --port 8080
 외부에 열 때는 내 키의 일별 트래픽이 소진될 수 있다는 점에 주의하세요.
 
 
-### claude.ai(웹·모바일)에서 바로 쓰기 — 공개 서버
+## 직접 배포하기 — Vercel
 
-직접 배포하지 않아도 공개 서버를 쓸 수 있다. 인증키는 각자 R-ONE에서 발급받아 넣는다(서버에는 키가 없다).
-
-claude.ai → 설정 → 커넥터 → 사용자 지정 커넥터 추가
-- Name: 아무 이름 (예: `R-ONE 부동산통계`)
-- MCP server URL: `https://r-one-mcp.vercel.app/mcp`
-- Request headers: `x-api-key` = `<본인의 R-ONE 인증키>`
-
-> 개인이 Vercel 무료 플랜으로 운영하는 서버라 예고 없이 멈추거나 바뀔 수 있다.
-> 꾸준히 쓰려면 아래 방법으로 직접 배포하는 편이 낫다.
-
-### claude.ai(웹·모바일)에서 쓰기 — Vercel 배포
+공개 서버 대신 내 Vercel 계정에 같은 서버를 올려 쓸 수 있습니다.
 
 claude.ai의 커넥터는 Anthropic 서버가 접속하므로 공개 HTTPS 주소가 필요하다.
 `api/index.py`, `vercel.json`으로 Vercel에 그대로 올릴 수 있다(무세션 stateless 모드).
@@ -169,7 +183,6 @@ pnpm dlx vercel deploy --prod
 
 - 인증키는 서버에 두지 않고 **요청 헤더로 보낸다**(권장): claude.ai → 설정 → 커넥터 → 사용자 지정 커넥터 추가 →
   URL `https://<프로젝트>.vercel.app/mcp`, Request headers에 `x-api-key` = `<R-ONE 인증키>`
-  - Name은 커넥터 목록에 보일 이름일 뿐이라 아무렇게나 적어도 된다(예: `R-ONE 부동산통계`). 키나 URL은 넣지 않는다.
   - 헤더를 못 넣는 클라이언트는 URL에 붙여도 된다: `.../mcp?key=<R-ONE 인증키>`
   - `Authorization: Bearer <키>`도 받는다. 요청의 키가 환경변수 `REB_API_KEY`보다 우선한다. 서버에 키를 두면 주소를 아는 누구나 그 키의 할당량을 쓰게 되므로 두지 않는 편을 권한다.
   - 키가 담긴 URL은 남에게 공유하지 않는다.

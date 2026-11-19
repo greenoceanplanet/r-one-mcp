@@ -1,6 +1,6 @@
 # CLAUDE.md — r-one-mcp
 
-한국부동산원 R-ONE 부동산통계 Open API용 MCP 서버. 특정 클라이언트에 묶이지 않는 로컬 실행용.
+한국부동산원 R-ONE 부동산통계 Open API용 MCP 서버. 특정 클라이언트에 묶이지 않으며, 로컬 실행(stdio)과 웹 원격 접속(Vercel, Streamable HTTP)을 모두 지원한다.
 
 ## 구조
 
