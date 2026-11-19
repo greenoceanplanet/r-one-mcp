@@ -157,6 +157,7 @@ pnpm dlx vercel deploy --prod
 
 - 인증키는 서버에 두지 않고 **요청 헤더로 보낸다**(권장): claude.ai → 설정 → 커넥터 → 사용자 지정 커넥터 추가 →
   URL `https://<프로젝트>.vercel.app/mcp`, Request headers에 `x-api-key` = `<R-ONE 인증키>`
+  - Name은 커넥터 목록에 보일 이름일 뿐이라 아무렇게나 적어도 된다(예: `R-ONE 부동산통계`). 키나 URL은 넣지 않는다.
   - 헤더를 못 넣는 클라이언트는 URL에 붙여도 된다: `.../mcp?key=<R-ONE 인증키>`
   - `Authorization: Bearer <키>`도 받는다. 요청의 키가 환경변수 `REB_API_KEY`보다 우선한다. 서버에 키를 두면 주소를 아는 누구나 그 키의 할당량을 쓰게 되므로 두지 않는 편을 권한다.
   - 키가 담긴 URL은 남에게 공유하지 않는다.
