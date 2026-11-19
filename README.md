@@ -145,6 +145,18 @@ uv run r-one-mcp --transport http --port 8080
 외부에 열 때는 내 키의 일별 트래픽이 소진될 수 있다는 점에 주의하세요.
 
 
+### claude.ai(웹·모바일)에서 바로 쓰기 — 공개 서버
+
+직접 배포하지 않아도 공개 서버를 쓸 수 있다. 인증키는 각자 R-ONE에서 발급받아 넣는다(서버에는 키가 없다).
+
+claude.ai → 설정 → 커넥터 → 사용자 지정 커넥터 추가
+- Name: 아무 이름 (예: `R-ONE 부동산통계`)
+- MCP server URL: `https://r-one-mcp.vercel.app/mcp`
+- Request headers: `x-api-key` = `<본인의 R-ONE 인증키>`
+
+> 개인이 Vercel 무료 플랜으로 운영하는 서버라 예고 없이 멈추거나 바뀔 수 있다.
+> 꾸준히 쓰려면 아래 방법으로 직접 배포하는 편이 낫다.
+
 ### claude.ai(웹·모바일)에서 쓰기 — Vercel 배포
 
 claude.ai의 커넥터는 Anthropic 서버가 접속하므로 공개 HTTPS 주소가 필요하다.
