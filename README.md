@@ -144,6 +144,25 @@ uv run r-one-mcp --transport http --port 8080
 기본 바인드 주소는 `127.0.0.1`입니다. 인증이나 호출 제한이 없으므로 `--host 0.0.0.0`으로
 외부에 열 때는 내 키의 일별 트래픽이 소진될 수 있다는 점에 주의하세요.
 
+
+### claude.ai(웹·모바일)에서 쓰기 — Vercel 배포
+
+claude.ai의 커넥터는 Anthropic 서버가 접속하므로 공개 HTTPS 주소가 필요하다.
+`api/index.py`, `vercel.json`으로 Vercel에 그대로 올릴 수 있다(무세션 stateless 모드).
+
+```bash
+pnpm dlx vercel login
+pnpm dlx vercel deploy --prod
+```
+
+- 인증키는 서버에 두지 않고 **요청 헤더로 보낸다**(권장): claude.ai → 설정 → 커넥터 → 사용자 지정 커넥터 추가 →
+  URL `https://<프로젝트>.vercel.app/mcp`, Request headers에 `x-api-key` = `<R-ONE 인증키>`
+  - 헤더를 못 넣는 클라이언트는 URL에 붙여도 된다: `.../mcp?key=<R-ONE 인증키>`
+  - `Authorization: Bearer <키>`도 받는다. 요청의 키가 환경변수 `REB_API_KEY`보다 우선한다. 서버에 키를 두면 주소를 아는 누구나 그 키의 할당량을 쓰게 되므로 두지 않는 편을 권한다.
+  - 키가 담긴 URL은 남에게 공유하지 않는다.
+- 원격에서는 `save_csv`가 동작하지 않는다(결과를 그대로 반환).
+- 로컬(stdio) 사용 방식은 그대로다.
+
 ## 환경변수
 
 | 변수 | 기본값 | 설명 |

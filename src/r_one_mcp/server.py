@@ -3,6 +3,8 @@
 특정 클라이언트에 묶이지 않도록 표준 MCP만 사용한다.
 - 기본: stdio (Claude Code/Desktop, Cursor, Codex, Gemini CLI, VS Code 등 대부분의 에이전트)
 - 선택: --transport http (Streamable HTTP만 지원하는 클라이언트·원격 접속용)
+- 원격(claude.ai 커넥터 등): api/index.py가 build_http_app()으로 Vercel에 올린다.
+  인증키는 URL의 ?key= 로 받는다 (서버에 키를 두지 않아도 됨).
 
 R-ONE API는 통계표코드(STATBL_ID)로 통계를 고르는 구조라, 통계표별 툴을 만들지 않고
 3개의 범용 툴로 모든 통계표를 다룬다.
@@ -19,6 +21,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_request
+from fastmcp.server.middleware import Middleware
 
 from . import __version__, reb_api
 
@@ -56,6 +60,40 @@ INSTRUCTIONS = """\
 """
 
 mcp = FastMCP("r-one-mcp", instructions=INSTRUCTIONS, version=__version__)
+
+
+class UrlKeyMiddleware(Middleware):
+    """HTTP 모드에서 요청에 담긴 인증키를 이번 툴 호출의 R-ONE 인증키로 쓴다.
+
+    찾는 순서: 헤더 X-API-Key → 헤더 Authorization: Bearer <키> → URL ?key=
+    stdio 모드에는 HTTP 요청이 없으므로 아무것도 하지 않는다 (환경변수 키 사용).
+    """
+
+    @staticmethod
+    def _key_from_request() -> str | None:
+        try:
+            req = get_http_request()
+        except RuntimeError:
+            return None
+        key = req.headers.get("x-api-key")
+        auth = req.headers.get("authorization", "")
+        if not key and auth.lower().startswith("bearer "):
+            key = auth[7:]
+        return (key or req.query_params.get("key") or "").strip() or None
+
+    async def on_call_tool(self, context, call_next):
+        key = self._key_from_request()
+        token = reb_api.request_api_key.set(key or None)
+        try:
+            return await call_next(context)
+        finally:
+            reb_api.request_api_key.reset(token)
+
+
+mcp.add_middleware(UrlKeyMiddleware())
+
+# 서버리스(Vercel)에서는 서버 디스크에 쓴 파일을 사용자가 받을 수 없다.
+REMOTE = bool(os.environ.get("VERCEL"))
 
 
 def _pick(row: dict, fields: tuple[str, ...]) -> dict:
@@ -295,6 +333,9 @@ async def get_statistics_data(
     note = reb_api.table_note(statbl_id)
     if note:
         out["note"] = note
+    if save_csv is not None and REMOTE:
+        out["save_csv"] = "원격 서버에서는 파일 저장을 지원하지 않아 결과를 그대로 반환한다."
+        save_csv = None
     if save_csv is None:
         out["results"] = picked
         return out
@@ -313,6 +354,12 @@ async def get_statistics_data(
     out["saved_base"] = how
     out["preview"] = picked[:5]
     return out
+
+
+def build_http_app(path: str = "/mcp"):
+    """원격 배포용 ASGI 앱. 서버리스에 맞게 세션을 유지하지 않는(stateless) 모드로 만든다."""
+    _load_env()
+    return mcp.http_app(path=path, stateless_http=True, json_response=True)
 
 
 def main() -> None:

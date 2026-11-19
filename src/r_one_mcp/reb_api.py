@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import xml.etree.ElementTree as ET
+from contextvars import ContextVar
 from pathlib import Path
 
 import httpx
@@ -46,13 +48,19 @@ class RebApiError(Exception):
 
 # --- 설정 -----------------------------------------------------------------
 
+# 원격(HTTP) 모드에서 요청 URL의 ?key= 값. 서버(server.py)가 툴 호출마다 넣는다.
+# 값이 있으면 환경변수보다 우선한다 → 서버에 키를 두지 않고 사용자마다 자기 키로 쓸 수 있다.
+request_api_key: ContextVar[str | None] = ContextVar("request_api_key", default=None)
+
+
 def _get_api_key() -> str:
-    key = os.environ.get("REB_API_KEY", "").strip()
+    key = (request_api_key.get() or os.environ.get("REB_API_KEY", "")).strip()
     if not key:
         raise RebApiError(
             "NO-KEY",
-            "REB_API_KEY가 설정되지 않았습니다. MCP 클라이언트 설정의 env 항목이나 "
-            "프로젝트 폴더의 .env 파일에 REB_API_KEY를 넣어주세요.",
+            "R-ONE 인증키가 없습니다. 로컬 실행이면 MCP 클라이언트 설정의 env 항목이나 "
+            "프로젝트 폴더의 .env 파일에 REB_API_KEY를 넣고, 원격(웹) 커넥터면 "
+            "헤더 X-API-Key: <인증키>를 넣거나 URL 끝에 ?key=<인증키>를 붙여 주세요.",
         )
     return key
 
@@ -61,6 +69,8 @@ def _cache_dir() -> Path:
     custom = os.environ.get("REB_CACHE_DIR")
     if custom:
         return Path(custom)
+    if os.environ.get("VERCEL"):  # 서버리스는 /tmp만 쓸 수 있다
+        return Path(tempfile.gettempdir()) / "r-one-mcp"
     base = os.environ.get("XDG_CACHE_HOME") or os.environ.get("LOCALAPPDATA")
     root = Path(base) if base else Path.home() / ".cache"
     return root / "r-one-mcp"

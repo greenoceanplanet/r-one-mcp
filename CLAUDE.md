@@ -8,6 +8,7 @@
 - `src/r_one_mcp/server.py` — FastMCP 툴 3개 + `main()` (stdio 기본, `--transport http` 선택)
 - `src/r_one_mcp/catalog.json` — 통계표ID → R-ONE 분류 경로 (`scripts/build_catalog.py`로 생성)
 - 실행: `uv run r-one-mcp`
+- 원격 배포: `api/index.py`(Vercel 진입점, `build_http_app()`) + `vercel.json`. 키는 헤더 `x-api-key` → `Authorization: Bearer` → URL `?key=` 순으로 받아 `reb_api.request_api_key`(ContextVar)에 넣는다 (`UrlKeyMiddleware`). `VERCEL` 환경변수가 있으면 캐시는 /tmp, save_csv는 무시.
 - `DEVPLAN.md`, `DEVLOG.md` — 원작자의 API 실측 기록 (fly.io 배포 관련 내용은 더 이상 해당 없음)
 
 ## 원칙
