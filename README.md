@@ -8,12 +8,11 @@
 - **로컬 실행**(stdio): Claude Code, Claude Desktop, Cursor, VS Code, Codex CLI, Gemini CLI 등
   MCP를 지원하는 에이전트에서 내 PC로 띄워 씁니다. 조회 결과를 CSV로 저장할 수 있습니다.
 - **웹(원격) 접속**(Streamable HTTP): claude.ai(웹·모바일)의 사용자 지정 커넥터로 붙여 씁니다.
-  공개 서버 `https://r-one-mcp.vercel.app/mcp`를 쓰거나 Vercel에 직접 배포할 수 있습니다.
+  공개 서버 `https://r-one-mcp.vercel.app/mcp`에 연결하므로 설치가 필요 없습니다.
 
 자세한 설치법은 아래를 참고하세요.
 [웹(claude.ai)에서 쓰기](#웹에서-바로-쓰기--claudeai-설치-불필요) ·
-[로컬에서 쓰기](#로컬에서-쓰기--준비) ·
-[직접 배포하기](#직접-배포하기--vercel)
+[로컬에서 쓰기](#로컬에서-쓰기--준비)
 
 > [hlucent/realestate-stats-mcp](https://github.com/hlucent/realestate-stats-mcp)(fly.io 공개 서버용,
 > 2026-08 서비스 종료)를 포크해 로컬 실행과 웹(원격) 접속을 모두 지원하도록 재구성했습니다.
@@ -72,10 +71,11 @@ claude.ai(웹·모바일)에서는 아무것도 설치하지 않고 공개 서�
 
 - 서버에는 인증키가 없습니다. 각자 자기 키로 호출하므로 다른 사람과 할당량을 나눠 쓰지 않습니다.
 - claude.ai에 등록한 커넥터는 같은 계정으로 로그인한 Claude Desktop·Claude Code에도 자동으로 나타납니다.
+- 헤더를 넣을 수 없는 클라이언트는 URL에 키를 붙여도 됩니다: `.../mcp?key=<인증키>` (이 URL은 남에게 공유하지 마세요)
 - 웹에서는 `save_csv`(파일 저장)가 동작하지 않습니다. 결과를 파일로 받으려면 로컬 실행을 쓰세요.
 
 > 개인이 Vercel 무료 플랜으로 운영하는 서버라 예고 없이 멈추거나 바뀔 수 있습니다.
-> 꾸준히 쓰려면 아래 [직접 배포하기](#직접-배포하기--vercel)를 참고하세요.
+> 서버가 멈췄을 때는 로컬 실행을 쓰세요.
 
 ## 로컬에서 쓰기 — 준비
 
@@ -173,26 +173,6 @@ uv run r-one-mcp --transport http --port 8080
 기본 바인드 주소는 `127.0.0.1`입니다. 인증이나 호출 제한이 없으므로 `--host 0.0.0.0`으로
 외부에 열 때는 내 키의 일별 트래픽이 소진될 수 있다는 점에 주의하세요.
 
-
-## 직접 배포하기 — Vercel
-
-공개 서버 대신 내 Vercel 계정에 같은 서버를 올려 쓸 수 있습니다.
-
-claude.ai의 커넥터는 Anthropic 서버가 접속하므로 공개 HTTPS 주소가 필요하다.
-`api/index.py`, `vercel.json`으로 Vercel에 그대로 올릴 수 있다(무세션 stateless 모드).
-
-```bash
-pnpm dlx vercel login
-pnpm dlx vercel deploy --prod
-```
-
-- 인증키는 서버에 두지 않고 **요청 헤더로 보낸다**(권장): claude.ai → 설정 → 커넥터 → 사용자 지정 커넥터 추가 →
-  URL `https://<프로젝트>.vercel.app/mcp`, Request headers에 `x-api-key` = `<R-ONE 인증키>`
-  - 헤더를 못 넣는 클라이언트는 URL에 붙여도 된다: `.../mcp?key=<R-ONE 인증키>`
-  - `Authorization: Bearer <키>`도 받는다. 요청의 키가 환경변수 `REB_API_KEY`보다 우선한다. 서버에 키를 두면 주소를 아는 누구나 그 키의 할당량을 쓰게 되므로 두지 않는 편을 권한다.
-  - 키가 담긴 URL은 남에게 공유하지 않는다.
-- 원격에서는 `save_csv`가 동작하지 않는다(결과를 그대로 반환).
-- 로컬(stdio) 사용 방식은 그대로다.
 
 ## 환경변수
 
